@@ -1,0 +1,27 @@
+# Core AI / LangChain stack
+langchain>=0.3.0
+langchain-groq>=0.2.0
+langchain-community>=0.3.0
+langchain-huggingface>=0.1.0
+langgraph>=0.2.0
+
+# MCP (Model Context Protocol)
+mcp>=1.0.0
+langchain-mcp-adapters>=0.1.0
+
+# Vector store + embeddings
+faiss-cpu>=1.7.4
+sentence-transformers>=2.7.0
+
+# Wikipedia (used inside the MCP server)
+wikipedia>=1.4.0
+
+# YouTube transcript fetching
+youtube-transcript-api>=0.6.0
+
+# ChromaDB vector store (YouTube RAG)
+chromadb>=0.4.0
+langchain-chroma>=0.1.0
+
+# Utilities
+python-dotenv>=1.0.0
