@@ -1,1 +1,22 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
 .env
+
+# ── Generated / runtime data (rebuild with the scripts) ──────────────────────
+youtube/transcripts.json
+youtube/chroma_db/
+youtube/embedding_model/
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# ── Jupyter checkpoints ───────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── OS / editor noise ─────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
