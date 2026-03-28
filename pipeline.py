@@ -133,7 +133,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, START, END
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
