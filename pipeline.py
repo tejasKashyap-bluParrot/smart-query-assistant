@@ -132,6 +132,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, START, END
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from deep_translator import GoogleTranslator
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
@@ -144,10 +145,41 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL   = "llama-3.3-70b-versatile"   # Fast + highly capable Groq model
 EMBED_MODEL  = "all-MiniLM-L6-v2"          # Used for the in-memory memory store
 
-# YouTube ChromaDB — must match the model used in youtube/02_build_rag.py
+# ── YouTube ChromaDB ──────────────────────────────────────────────────────────
+# Must use the SAME embedding model that was used in youtube/02_build_rag.py
 YT_EMBED_MODEL  = "sentence-transformers/LaBSE"
 YT_CHROMA_DIR   = str(Path(__file__).parent / "youtube" / "chroma_db")
 YT_COLLECTION   = "genai_playlist"
+
+# ── Why LaBSE retrieval works cross-lingually ─────────────────────────────────
+#
+# The CampusX playlist transcripts are in Hindi, but users query in English,
+# Hindi, or Hinglish. LaBSE handles this seamlessly because of how it was
+# trained — here is what happens internally:
+#
+#   Query  (English): "What is LangChain?"
+#           │
+#           ▼  LaBSE encodes
+#   Vector: [0.23, -0.41, 0.87, ...]   ← English embedding
+#
+#   Chunk  (Hindi):  "लैंगचेन एक ओपन-सोर्स फ्रेमवर्क है..."
+#           │
+#           ▼  LaBSE encodes
+#   Vector: [0.21, -0.39, 0.85, ...]   ← Hindi embedding, nearly identical direction
+#
+# LaBSE was trained on parallel sentence pairs across 109 languages.
+# It maps semantically equivalent sentences in different languages to the
+# SAME region of vector space. An English query about LangChain and a Hindi
+# explanation of LangChain land very close together — cosine similarity is high.
+#
+# This is fundamentally different from a monolingual model like all-MiniLM-L6-v2,
+# which would fail here: English and Hindi sentences would land in completely
+# different vector regions and the similarity score would be near-zero.
+#
+# However — LaBSE retrieves the RIGHT chunks, but the downstream Decision LLM
+# sees raw Hindi text it cannot judge. The fix: translate retrieved chunks to
+# English at retrieval time so the LLM always works with readable content.
+# ─────────────────────────────────────────────────────────────────────────────
 
 if not GROQ_API_KEY:
     raise EnvironmentError("GROQ_API_KEY is not set. Check your .env file.")
@@ -308,18 +340,45 @@ def build_memory_node(memory_store: FAISS):
 
 # ── Node 3a: YouTube Retriever ────────────────────────────────────────────────
 
-def build_youtube_retriever_node(youtube_store: FAISS):
+def _translate_to_english(text: str) -> str:
     """
-    Factory: returns a node that performs semantic search over the YouTube
-    transcript FAISS index and returns the top-3 matching chunks.
+    Translate text to English using Google Translate (free, no API key).
+
+    Source language is auto-detected, so this handles Hindi, Hinglish, and
+    already-English text equally well.  If translation fails for any reason
+    (network issue, rate limit), the original text is returned unchanged so
+    the pipeline never hard-fails on a translation error.
+    """
+    try:
+        return GoogleTranslator(source="auto", target="en").translate(text)
+    except Exception:
+        return text   # graceful fallback — return original
+
+
+def build_youtube_retriever_node(youtube_store):
+    """
+    Factory: returns a node that:
+      1. Runs semantic similarity search over the YouTube ChromaDB (via LaBSE).
+      2. Translates each retrieved chunk to English before returning.
+
+    Why translate here and not at ingest time?
+      LaBSE already retrieves the correct Hindi chunks for an English query
+      (cross-lingual vector space — see comment near YT_EMBED_MODEL above).
+      The problem is the Decision LLM downstream cannot judge relevance of raw
+      Hindi text, so it always favours Wikipedia.  Translating at retrieval
+      time costs ~0.3 s per query, requires no ChromaDB rebuild, and makes
+      every downstream node (decision, answer, merge) work with clean English.
     """
     def youtube_retriever_node(state: QueryState) -> dict:
         docs = youtube_store.similarity_search(state["query"], k=3)
-        results = [
-            f"[YouTube — {d.metadata.get('title', 'Unknown')}]\n{d.page_content}"
-            for d in docs
-        ]
-        print(f"  [YouTubeRetriever] Found {len(results)} result(s).")
+
+        results = []
+        for d in docs:
+            title     = d.metadata.get("title", "Unknown")
+            translated = _translate_to_english(d.page_content)
+            results.append(f"[YouTube — {title}]\n{translated}")
+
+        print(f"  [YouTubeRetriever] Found {len(results)} result(s). (translated to EN)")
         return {"youtube_results": results}
 
     return youtube_retriever_node
